@@ -97,6 +97,8 @@ jobs:
       - name: Deploy (rollback on failed rollout)
         env:
           KUBECONFIG_DATA: ${{ secrets.KUBECONFIG }}
+          # Демо для лекции: dry-run rollout в prod «не дождётся» готовности.
+          DRY_RUN_FAIL_ROLLOUT: "1"
         run: ./scripts/deploy.sh "${{ github.sha }}"
 
   merge-to-master:
