@@ -5,5 +5,5 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> $(python --version), pytest"
+echo "==> $(python --version), pytest (подробный вывод)"
 python -m pytest -v
