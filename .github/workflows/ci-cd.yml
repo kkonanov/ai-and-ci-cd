@@ -10,10 +10,11 @@ on:
 permissions:
   contents: read
 
-# Новый пуш в ту же ветку/PR отменяет устаревший прогон.
+# Новый пуш в PR отменяет устаревший прогон. Прогоны release не отменяем:
+# иначе новый пуш оборвёт идущий deploy посреди rollout или отката.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
@@ -63,3 +64,55 @@ jobs:
         env:
           IMAGE: ${{ steps.build.outputs.image }}
         run: echo "Image - \`${IMAGE}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-dev:
+    # Автоматически после build: кластер marketplace-dev.
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+    # Не больше одного деплоя в dev одновременно; идущий не прерываем.
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deploy (rollback on failed rollout)
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG }}
+        run: ./scripts/deploy.sh "${{ github.sha }}"
+
+  deploy-prod:
+    # После успешного deploy-dev и Approve: у environment production
+    # в настройках репозитория включено правило Required reviewers.
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deploy (rollback on failed rollout)
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG }}
+        run: ./scripts/deploy.sh "${{ github.sha }}"
+
+  merge-to-master:
+    # После успешного deploy-prod: master = то, что сейчас в prod.
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Единственная job, которой нужна запись в репозиторий.
+    permissions:
+      contents: write
+    concurrency:
+      group: merge-to-master
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Merge release into master (fast-forward)
+        run: ./scripts/merge-to-master.sh "${{ github.sha }}"
