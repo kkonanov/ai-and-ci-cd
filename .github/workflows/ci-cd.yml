@@ -1,0 +1,65 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [release]
+  push:
+    branches: [release]
+
+# Минимальные права: только чтение кода.
+permissions:
+  contents: read
+
+# Новый пуш в ту же ветку/PR отменяет устаревший прогон.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ./scripts/lint.sh
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Test
+        run: ./scripts/test.sh
+
+  build:
+    # Только после влития в release и только если lint и test зелёные.
+    if: github.event_name == 'push'
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build image
+        id: build
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: ./scripts/build.sh
+      - name: Summary
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: echo "Image - \`${IMAGE}\`" >> "$GITHUB_STEP_SUMMARY"
